@@ -1,0 +1,91 @@
+name: uat
+
+on:
+  push:
+    branches: [ uat ]
+jobs:
+  build:
+    name: Package, Build Image, Push & Trigger Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Java setup
+      uses: actions/setup-java@v3
+      with:
+        distribution: temurin
+        java-version: 17
+
+    - name: Compile & Package Core Service
+      id: compile-n-package-core
+      run: |
+        ./gradlew core-build
+        cd ./services/core
+        rm -rf ./app/build/jar
+        unzip -o ./app/build/libs/app-0.0.1-SNAPSHOT.jar -d ./app/build/jar
+
+    - name: Compile & Package Auth Service
+      id: compile-n-package-auth
+      run: |
+        ./gradlew auth-build
+        cd ./services/auth
+        rm -rf ./app/build/jar
+        unzip -o ./build/libs/mhb-auth-service-0.0.1-SNAPSHOT.jar -d ./build/jar     
+        
+    - name: Compile & Package Notification Service
+      id: compile-n-package-notification
+      run: |
+        ./gradlew notification-build
+        cd ./services/notification
+        rm -rf ./app/build/jar
+        unzip -o ./build/libs/mhb-notification-service-0.0.1-SNAPSHOT.jar -d ./build/jar     
+
+
+    - name: Compile & Package Scheduler Service
+      id: compile-n-package-schedular
+      run: |
+        ./gradlew scheduler-build
+        cd ./services/scheduler
+        rm -rf ./app/build/jar
+        unzip -o ./build/libs/mhb-scheduler-service-0.0.1-SNAPSHOT.jar -d ./build/jar
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-south-1    
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Docker Build and Push to ECR
+      id: build-image
+
+      run: |
+        # Build a docker container and push it to ECR
+        tag=2.0.0-$(git rev-parse --short "$GITHUB_SHA")
+        ./k8s/uat/script-cicd.sh $tag
+        echo "TAG=$tag" >> $GITHUB_OUTPUT
+        
+    - name: Repository Dispatch
+      uses: peter-evans/repository-dispatch@v1
+      env:
+          ECR_REPO_AUTH: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/mhb_auth"
+          ECR_REPO_USER: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/mhb_core"
+          ECR_REPO_MONGO: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/clients/mongo"
+          ECR_REPO_MYSQL: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/clients/mysql"
+          ECR_REPO_NOTIFICATION: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/mhb_notification"
+          ECR_REPO_SCHEDULAR: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/scheduler"
+      with:
+        token: ${{ secrets.PAT_DEVOPS_REPO }}
+        repository: ${{ secrets.DEVOPS_REPO }}
+        event-type: uat-deploy
+        client-payload: '{"auth-image": "${{ env.ECR_REPO_AUTH }}:${{ steps.build-image.outputs.TAG }}",
+                          "core-image": "${{ env.ECR_REPO_USER }}:${{ steps.build-image.outputs.TAG }}",
+                          "mongo-client-image": "${{ env.ECR_REPO_MONGO }}:5.0.9_${{ steps.build-image.outputs.TAG }}",
+                          "mysql-client-image": "${{ env.ECR_REPO_MYSQL }}:8.0.30_${{ steps.build-image.outputs.TAG }}",
+                          "notification-image": "${{ env.ECR_REPO_NOTIFICATION }}:${{ steps.build-image.outputs.TAG }}",
+                          "schedualr-image": "${{env.ECR_REPO_SCHEDULAR}}:${{steps.build-image.output.TAG}}"}'
