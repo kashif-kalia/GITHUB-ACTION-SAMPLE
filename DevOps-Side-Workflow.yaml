@@ -1,0 +1,50 @@
+name: Repository Dispatch
+
+on:
+  repository_dispatch:
+    types: [uat-deploy]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Update Auth Image Version
+      id: img-update-1
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.auth-image }}"' -i overlays/uat/auth/deployment.yaml
+       
+    - name: Update Core Image Version
+      id: img-update-2
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.core-image }}"' -i overlays/uat/core/deployment.yaml
+          
+    - name: Update Mongo Client Image Version
+      id: img-update-3
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.mongo-client-image }}"' -i overlays/uat/mongo/client.yaml
+
+    - name: Update MySQL Client Image Version
+      id: img-update-4
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.mysql-client-image }}"' -i overlays/uat/mysql/client.yaml
+        
+    - name: Update Notification Service Image Version
+      id: img-update-5
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.notification-image }}"' -i overlays/uat/notification/deployment.yaml
+        
+    - name: Update Notification Service Image Version
+      id: img-update-6
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.schedular-image }}"' -i overlays/uat/schedular/deployment.yaml        
+           
+    - uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        commit_message: Apply image name changes
