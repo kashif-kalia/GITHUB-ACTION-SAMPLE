@@ -1,0 +1,241 @@
+name: int
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - 'int2'
+  push:
+    branches: [int2]
+
+env:
+  AWS_REGION: eu-west-2
+  SHORT_SHA: $(echo ${{ github.sha }} | cut -c 1-8)
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v1
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Build Audit client
+        run: |
+          cd shared/audit-client
+          chmod +x ./gradlew
+          ./gradlew publishToMavenLocal -x test
+
+      - name: Print MavenLocal contents
+        run: |
+          echo "Contents of MavenLocal:"
+          ls -R ${HOME}/.m2/repository
+
+      - name: Build and test project
+        run: |
+          cd services/e-referrals-service
+          ./mvnw clean package
+      - name: Build and test second service
+        run: |
+          cd services/e-prescription-service
+          chmod +x ./mvnw
+          ./mvnw clean package          
+  publish-artifacts:
+    needs: build-and-test
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-java@v2
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Build Audit client
+        run: |
+          cd shared/audit-client
+          chmod +x ./gradlew
+          ./gradlew publishToMavenLocal -x test
+      - name: Print MavenLocal contents
+        run: |
+          echo "Contents of MavenLocal:"
+          ls -R ${HOME}/.m2/repository
+
+      - name: Build Services
+        run: |
+          cd services/e-referrals-service
+          ./mvnw clean install -P pre-docker-build
+                    
+      - name: build e-prescription-service
+        run: |
+          cd services/e-prescription-service
+          chmod +x ./mvnw
+          ./mvnw clean install -P pre-docker-build     
+                      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::622905996173:role/github-assume-role ### how to create this role in aws is explained in bottom####
+          role-session-name: GithubActionsSession
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push Docker image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: tif/int/integration/ereferral
+        run: |
+          cd services/e-referrals-service
+          docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+          docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+                   
+      - name: Build, tag, and push Docker image e-prescription-service
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: tif/int/integration/prescription
+        run: |
+          cd services/e-prescription-service
+          docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+          docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+                    
+  deploy:
+    needs: publish-artifacts
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Set Outputs
+        id: vars
+        run: echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c 1-8)" >> $GITHUB_OUTPUT
+
+      - name: Repository Dispatch
+        uses: peter-evans/repository-dispatch@v1
+        env:
+          ECR_REPO_INTEGRATION_EREFERRAL: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/integration/ereferral"
+          ECR_REPO_INTEGRATION_PRESCRIPTION: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/integration/prescription"
+        with:
+          token: ${{ secrets.GITOPS_REPO_PAT }}
+          repository: ${{ secrets.GITOPS_REPO }}
+          event-type: int-deploy
+          client-payload: '{"integration-ereferral-image": "${{ env.ECR_REPO_INTEGRATION_EREFERRAL }}:${{ steps.vars.outputs.SHORT_SHA }}",
+                          "integration-prescription-image": "${{ env.ECR_REPO_INTEGRATION_PRESCRIPTION }}:${{ steps.vars.outputs.SHORT_SHA }}"}'
+
+
+
+
+                          How to create a role on aws to aunthenticate GitHub by AWS. 
+                          Here we will create a role with three policy are following name :-
+                          1) cloudfront-cache-validation
+                          2) ecr-push-image-policy
+                          3) github-s3-uploads
+
+                          1) cloudfront-cache-validation
+                         
+                          {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Statement1",
+            "Effect": "Allow",
+            "Action": [
+                "cloudfront:CreateInvalidation",
+                "cloudfront:GetDistribution",
+                "cloudfront:GetStreamingDistribution",
+                "cloudfront:GetDistributionConfig",
+                "cloudfront:GetInvalidation",
+                "cloudfront:ListInvalidations",
+                "cloudfront:ListStreamingDistributions",
+                "cloudfront:ListDistributions"
+            ],
+            "Resource": [
+                "arn:aws:cloudfront::622905996173:distribution/E2QLPAGVVDTLVE"
+            ]
+        }
+    ]
+}
+                   2) ecr-push-image-policy
+
+                   {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ecr:BatchGetImage",
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:CompleteLayerUpload",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:InitiateLayerUpload",
+                "ecr:PutImage",
+                "ecr:UploadLayerPart"
+            ],
+            "Resource": "arn:aws:ecr:eu-west-2:622905996173:repository/tif/*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "ecr:GetAuthorizationToken",
+            "Resource": "*"
+        }
+    ]
+}    
+
+                   3) github-s3-uploads
+
+                   {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:CreateBucket",
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::*",
+                "arn:aws:s3:::*/*"
+            ]
+        }
+    ]
+}
+
+
+                  
+
+                          1
+
+
+
+
+
+
+                          
