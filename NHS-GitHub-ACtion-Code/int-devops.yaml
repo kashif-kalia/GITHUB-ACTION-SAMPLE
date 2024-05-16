@@ -1,0 +1,103 @@
+name: Repository Dispatch
+
+on:
+  repository_dispatch:
+    types: [int-deploy]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+        
+    permissions:
+      # Give the default GITHUB_TOKEN write permission to commit and push the
+      # added or changed files to the repository.
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Update Auth Image Version
+      id: img-update-1
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.auth-image }}"' -i overlays/int/auth/deployment.yaml
+
+    - name: Update Core Image Version
+      id: img-update-2
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.core-image }}"' -i overlays/int/core/deployment.yaml
+
+    - name: Update Pim Image Version
+      id: img-update-3
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.pim-image }}"' -i overlays/int/pim/deployment.yaml
+
+    - name: Update Local Auth Image Version
+      id: img-update-4
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.local-auth-image }}"' -i overlays/int/local-auth/deployment.yaml      
+
+    - name: Update GP Connect Image Version
+      id: img-update-5
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.gp-connect-image }}"' -i overlays/int/gp-connect/deployment.yaml      
+
+    - name: Update ERM Image Version
+      id: img-update-6
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.erm-image }}"' -i overlays/int/erm/deployment.yaml      
+
+######## INTEGRATION API IMAGES #########
+
+    - name: Update Pds Integration Image Version
+      id: img-update-7
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.integration-pds-image }}"' -i overlays/int/integration/pds/deployment.yaml    
+
+    - name: Update Mesh Integration Image Version
+      id: img-update-8
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.integration-mesh-image }}"' -i overlays/int/integration/mesh/deployment.yaml    
+
+    - name: Update Mesh Mailbox Integration Image Version
+      id: img-update-9
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.integration-mesh-mailbox-image }}"' -i overlays/int/integration/mesh-mailbox/deployment.yaml    
+
+    - name: Update Ereferral Integration Image Version
+      id: img-update-10
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.integration-ereferral-image }}"' -i overlays/int/integration/ereferral/deployment.yaml
+         
+    - name: Update Prescription Integration Image Version
+      id: img-update-11
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.integration-prescription-image }}"' -i overlays/int/integration/prescription/deployment.yaml    
+                
+    - name: Update IM1 Image Version
+      id: img-update-12
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.im1-image }}"' -i overlays/int/im1/deployment.yaml    
+            
+    - name: Update NHS-111 Image Version
+      id: img-update-13
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.nhs-111-image }}"' -i overlays/int/nhs-111/deployment.yaml  
+            
+               
+######## APPLY CHANGES ########################
+        
+    - uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: Apply image name changes
