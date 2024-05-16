@@ -1,0 +1,179 @@
+name: int
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:    
+      - 'int'
+  push:
+    branches: [ int ]
+
+env:
+  AWS_REGION : eu-west-2
+  SHORT_SHA: $(echo ${{ github.sha }} | cut -c 1-8)
+
+
+permissions:
+      id-token: write   # This is required for requesting the JWT
+      contents: read    # This is required for actions/checkout    
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-java@v3
+      with:
+        distribution: temurin
+        java-version: 17
+    
+    - name: Setup Gradle
+      uses: gradle/gradle-build-action@v2
+      with:
+        gradle-version: 7.6.1
+    
+    - name: Build Services
+      run: |
+        ./gradlew core-build
+        ./gradlew auth-build
+        ./gradlew pim-build
+        ./gradlew local-auth-build
+        ./gradlew gp-connect-build
+        ./gradlew erm-build
+        ./gradlew im1-build
+        ./gradlew nhs-111-build
+              
+    - name: Pre Docker Build
+      id: pre-docker-build
+      run: | 
+        ./gradlew core-preDockerBuild 
+        ./gradlew auth-preDockerBuild && cp ./services/auth/docker/certs -R ./services/auth/build/docker
+        ./gradlew pim-preDockerBuild 
+        ./gradlew local-auth-preDockerBuild
+        ./gradlew gp-connect-preDockerBuild
+        ./gradlew erm-preDockerBuild
+        ./gradlew im1-preDockerBuild
+        ./gradlew nhs-111-preDockerBuild
+    - name: configure aws credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: arn:aws:iam::622905996173:role/github-assume-role 
+        role-session-name: GithubActionsSession
+        aws-region: ${{ env.AWS_REGION }}  
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Build, tag, and push docker image for CORE to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/core
+      run: |
+        cd services/core/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for AUTH to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/auth
+      run: |
+        cd services/auth/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for PIM to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/pim
+      run: |
+        cd services/pim/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for LOCAL-AUTH to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/local-auth
+      run: |
+        cd services/local-auth/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for GP-CONNECT to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/gp-connect
+      run: |
+        cd services/gp-connect/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for ERM to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/erm
+      run: |
+        cd services/erm/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for IM1 to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/im1
+      run: |
+        cd services/im1/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+         
+    - name: Build, tag, and push docker image for NHS-111 to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/nhs-111
+      run: |
+        cd services/nhs-111/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}    
+  deploy:
+    needs: build
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    
+    - name: Set outputs
+      id: vars
+      run: echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c 1-8)" >> $GITHUB_OUTPUT
+    
+    - name: Repository Dispatch
+      uses: peter-evans/repository-dispatch@v1
+      env:
+          ECR_REPO_AUTH: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/auth"
+          ECR_REPO_CORE: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/core"
+          ECR_REPO_PIM: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/pim"
+          ECR_REPO_LOCAL_AUTH: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/local-auth"
+          ECR_REPO_GP_CONNECT: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/gp-connect"
+          ECR_REPO_ERM: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/erm"
+          ECR_REPO_IM1: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/im1"
+          ECR_REPO_NHS-111: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/nhs-111"
+      with:
+        token: ${{ secrets.GITOPS_REPO_PAT }}
+        repository: ${{ secrets.GITOPS_REPO }}
+        event-type: int-deploy
+        client-payload: '{"auth-image":       "${{ env.ECR_REPO_AUTH }}:${{ steps.vars.outputs.SHORT_SHA }}",
+                          "core-image":       "${{ env.ECR_REPO_CORE }}:${{ steps.vars.outputs.SHORT_SHA }}",
+                          "pim-image":        "${{ env.ECR_REPO_PIM }}:${{ steps.vars.outputs.SHORT_SHA }}",
+                          "local-auth-image": "${{ env.ECR_REPO_LOCAL_AUTH }}:${{ steps.vars.outputs.SHORT_SHA }}",
+                          "gp-connect-image": "${{ env.ECR_REPO_GP_CONNECT }}:${{ steps.vars.outputs.SHORT_SHA }}",
+                          "erm-image":        "${{ env.ECR_REPO_ERM }}:${{ steps.vars.outputs.SHORT_SHA }}",
+                          "im1-image":        "${{ env.ECR_REPO_IM1 }}:${{ steps.vars.outputs.SHORT_SHA }}",
+                          "nhs-111-image":    "${{env.ECR_REPO_NHS-111}}:${{steps.vars.outputs.SHORT_SHA}}"}'
