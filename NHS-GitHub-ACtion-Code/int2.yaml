@@ -1,0 +1,116 @@
+name: int
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:    
+      - 'int'
+  push:
+    branches: [ int ]
+
+env:
+  AWS_REGION : eu-west-2
+  SHORT_SHA: $(echo ${{ github.sha }} | cut -c 1-8)
+
+
+permissions:
+      id-token: write   # This is required for requesting the JWT
+      contents: read    # This is required for actions/checkout    
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-java@v3
+      with:
+        distribution: temurin
+        java-version: 17
+    
+    - name: Setup Gradle
+      uses: gradle/gradle-build-action@v2
+      with:
+        gradle-version: 7.6.1
+    
+    - name: Build Services
+      run: |
+        ./gradlew mesh-client-service-build
+        ./gradlew pds-integration-service-build
+        ./gradlew mesh-mailbox-service-build
+              
+    - name: Pre Docker Build
+      id: pre-docker-build
+      run: | 
+        ./gradlew mesh-client-service-preDockerBuild && cp ./services/mesh-client-service/docker/certs -R ./services/mesh-client-service/build/docker  
+        ./gradlew pds-integration-service-preDockerBuild 
+        ./gradlew mesh-mailbox-service-preDockerBuild && cp ./services/mesh-mailbox-service/docker/certs -R ./services/mesh-mailbox-service/build/docker  
+        
+    - name: configure aws credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: arn:aws:iam::622905996173:role/github-assume-role 
+        role-session-name: GithubActionsSession
+        aws-region: ${{ env.AWS_REGION }}  
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Build, tag, and push docker image for pds integration apis to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/integration/pds
+      run: |
+        cd services/pds-integration-service/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for mesh integration apis to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/integration/mesh
+      run: |
+        cd services/mesh-client-service/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for mesh mailbox service to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/integration/mesh-mailbox
+      run: |
+        cd services/mesh-mailbox-service/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+        
+  deploy:
+    needs: build
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    
+    - name: Set outputs
+      id: vars
+      run: echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c 1-8)" >> $GITHUB_OUTPUT
+    
+    - name: Repository Dispatch
+      uses: peter-evans/repository-dispatch@v1
+      env:
+          ECR_REPO_INTEGRATION_PDS: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/integration/pds"
+          ECR_REPO_INTEGRATION_MESH: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/integration/mesh"
+          ECR_REPO_INTEGRATION_MESH_MAILBOX: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/integration/mesh-mailbox"
+      with:
+        token: ${{ secrets.GITOPS_REPO_PAT }}
+        repository: ${{ secrets.GITOPS_REPO }}
+        event-type: int-deploy
+        client-payload: '{"integration-pds-image": "${{ env.ECR_REPO_INTEGRATION_PDS }}:${{ steps.vars.outputs.SHORT_SHA }}",
+                          "integration-mesh-image": "${{ env.ECR_REPO_INTEGRATION_MESH }}:${{ steps.vars.outputs.SHORT_SHA }}",
+                          "integration-mesh-mailbox-image": "${{ env.ECR_REPO_INTEGRATION_MESH_MAILBOX }}:${{ steps.vars.outputs.SHORT_SHA }}"}'
+
