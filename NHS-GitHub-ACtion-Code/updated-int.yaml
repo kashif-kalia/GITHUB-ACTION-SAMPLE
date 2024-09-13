@@ -1,0 +1,313 @@
+name: int
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:    
+      - 'int'
+  push:
+    branches: [ int ]
+
+env:
+  AWS_REGION : eu-west-2
+  SHORT_SHA: $(echo ${{ github.sha }} | cut -c 1-8)
+
+
+permissions:
+      id-token: write   # This is required for requesting the JWT
+      contents: read    # This is required for actions/checkout    
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    outputs:
+      auth: ${{ steps.changed-services.outputs.auth }}
+      core: ${{ steps.changed-services.outputs.core }}
+      pim: ${{ steps.changed-services.outputs.pim }}
+      erm: ${{ steps.changed-services.outputs.erm }}
+      local-auth: ${{ steps.changed-services.outputs.local-auth }}
+      gp-connect: ${{ steps.changed-services.outputs.gp-connect }}
+      nhs-111: ${{ steps.changed-services.outputs.nhs-111 }}
+      im1: ${{ steps.changed-services.outputs.im1 }}
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
+  
+    - uses: actions/setup-java@v3
+      with:
+        distribution: temurin
+        java-version: 17
+    
+    - name: Setup Gradle
+      uses: gradle/gradle-build-action@v2
+      with:
+        gradle-version: 7.6.1
+                   
+    - name: Determine changed services on Push
+      id: changed-services
+      run: |
+        if ${{ github.event_name == 'pull_request' }}; then
+          echo "CHANGED_FILES=$(git diff --name-only -r HEAD^1 HEAD | xargs)" >> $GITHUB_OUTPUT
+          CHANGED_FILES=$(git diff --name-only -r HEAD^1 HEAD | xargs)
+        else
+          echo "CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | xargs)" >> $GITHUB_OUTPUT
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | xargs)
+        fi
+        echo "core=$(echo "$CHANGED_FILES" | grep -q 'services/core/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "auth=$(echo "$CHANGED_FILES" | grep -q 'services/auth/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "pim=$(echo "$CHANGED_FILES" | grep -q 'services/pim/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "local-auth=$(echo "$CHANGED_FILES" | grep -q 'services/local-auth/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "gp-connect=$(echo "$CHANGED_FILES" | grep -q 'services/gp-connect/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "erm=$(echo "$CHANGED_FILES" | grep -q 'services/erm/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "im1=$(echo "$CHANGED_FILES" | grep -q 'services/im1/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "nhs-111=$(echo "$CHANGED_FILES" | grep -q 'services/nhs-111/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+         
+    - name: Print changed files
+      run: |
+        for file in ${{ steps.changed-services.outputs.CHANGED_FILES }}; do
+          echo "$file was changed"
+        done     
+    
+    
+    - name: Debug Outputs
+      run: |
+        echo "Core: ${{ steps.changed-services.outputs.core }}"
+        echo "Auth: ${{ steps.changed-services.outputs.auth }}"
+        echo "Pim: ${{ steps.changed-services.outputs.pim }}"
+        echo "Local Auth: ${{ steps.changed-services.outputs.local-auth }}"
+        echo "GP Connect: ${{ steps.changed-services.outputs.gp-connect }}"
+        echo "ERM: ${{ steps.changed-services.outputs.erm }}"
+        echo "IM1: ${{ steps.changed-services.outputs.im1 }}"
+        echo "NHS 111: ${{ steps.changed-services.outputs.nhs-111 }}"
+    
+    - name: Build Core-Service
+      if: steps.changed-services.outputs.core == 'true'
+      run: ./gradlew core-build
+        
+    - name: Build Auth-Service
+      if: steps.changed-services.outputs.auth == 'true'
+      run: ./gradlew auth-build
+
+    - name: Build Pim-Service
+      if: steps.changed-services.outputs.pim == 'true'      
+      run: ./gradlew pim-build
+
+    - name: Build Local-Auth-Service
+      if: steps.changed-services.outputs.local-auth == 'true'
+      run: ./gradlew local-auth-build     
+        
+    - name: Build Gp-Connect-Service
+      if: steps.changed-services.outputs.gp-connect == 'true'
+      run: ./gradlew gp-connect-build
+
+    - name: Build Erm-Service
+      if: steps.changed-services.outputs.erm == 'true'
+      run: ./gradlew erm-build
+      
+    - name: Build Im1-Service 
+      if: steps.changed-services.outputs.im1 == 'true'
+      run: ./gradlew im1-build
+      
+    - name: Build NHS-111-Service
+      if: steps.changed-services.outputs.nhs-111 == 'true'
+      run: ./gradlew nhs-111-build
+
+    - name: Pre Docker Build Core Service
+      if: steps.changed-services.outputs.core == 'true'
+      run: ./gradlew core-preDockerBuild 
+        
+    - name: Pre Docker Build Auth Service
+      if: steps.changed-services.outputs.auth == 'true'    
+      run: ./gradlew auth-preDockerBuild && cp ./services/auth/docker/certs -R ./services/auth/build/docker  
+
+    - name: Pre Docker Build Pim service
+      if: steps.changed-services.outputs.pim == 'true'
+      run: ./gradlew pim-preDockerBuild      
+
+    - name: Pre Docker Build Local-Auth Service
+      if: steps.changed-services.outputs.local-auth == 'true' 
+      run: ./gradlew local-auth-preDockerBuild    
+        
+    - name: Pre Docker Build GP-CONNECT Service
+      if: steps.changed-services.outputs.gp-connect == 'true'
+      run: ./gradlew gp-connect-preDockerBuild  
+        
+    - name: Pre Docker Build ERM Service
+      if: steps.changed-services.outputs.erm == 'true'
+      run: ./gradlew erm-preDockerBuild
+
+    - name: Pre Docker Build IM1 Service 
+      if: steps.changed-services.outputs.im1 == 'true'
+      run: ./gradlew im1-preDockerBuild      
+        
+    - name: Pre Docker Build NHS-111 Service    
+      if: steps.changed-services.outputs.nhs-111 == 'true'  
+      run: ./gradlew nhs-111-preDockerBuild
+
+    - name: configure aws credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: arn:aws:iam::622905996173:role/github-assume-role 
+        role-session-name: GithubActionsSession
+        aws-region: ${{ env.AWS_REGION }}  
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Build, tag, and push docker image for CORE to Amazon ECR
+      if: steps.changed-services.outputs.core == 'true'
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/core
+      run: |
+        cd services/core/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+        
+    - name: Build, tag, and push docker image for AUTH to Amazon ECR
+      if: steps.changed-services.outputs.auth == 'true'
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/auth
+      run: |
+        cd services/auth/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for PIM to Amazon ECR
+      if: steps.changed-services.outputs.pim == 'true'
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/pim
+      run: |
+        cd services/pim/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for LOCAL-AUTH to Amazon ECR
+      if: steps.changed-services.outputs.local-auth == 'true'
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/local-auth
+      run: |
+        cd services/local-auth/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    
+    
+    - name: Build, tag, and push docker image for GP-CONNECT to Amazon ECR
+      if: steps.changed-services.outputs.gp-connect == 'true'
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/gp-connect
+      run: |
+        cd services/gp-connect/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for ERM to Amazon ECR
+      if: steps.changed-services.outputs.erm == 'true'
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/erm
+      run: |
+        cd services/erm/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+    - name: Build, tag, and push docker image for IM1 to Amazon ECR
+      if: steps.changed-services.outputs.im1 == 'true'
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/im1
+      run: |
+        cd services/im1/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}
+         
+    - name: Build, tag, and push docker image for NHS-111 to Amazon ECR
+      if: steps.changed-services.outputs.nhs-111 == 'true'
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: tif/int/nhs-111
+      run: |
+        cd services/nhs-111/build
+        docker build --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }} docker 
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:latest
+        docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ env.SHORT_SHA }}    
+  deploy:
+    needs: build
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    
+    - name: Set outputs
+      id: vars
+      run: echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c 1-8)" >> $GITHUB_ENV
+                       
+    - name: Prepare Client Payload
+      id: prepare-payload
+      run: |
+        PAYLOAD="{"
+        if [ "${{ needs.build.outputs.auth }}" == "true" ]; then
+          PAYLOAD+='"auth-image": "${{ env.ECR_REPO_AUTH }}:${{ env.SHORT_SHA }}",'
+        fi
+        if [ "${{ needs.build.outputs.core }}" == "true" ]; then
+          PAYLOAD+='"core-image": "${{ env.ECR_REPO_CORE }}:${{ env.SHORT_SHA }}",'
+        fi
+        if [ "${{ needs.build.outputs.pim }}" == "true" ]; then
+          PAYLOAD+='"pim-image": "${{ env.ECR_REPO_PIM }}:${{ env.SHORT_SHA }}",'
+        fi
+        if [ "${{ needs.build.outputs.local-auth }}" == "true" ]; then
+          PAYLOAD+='"local-auth-image": "${{ env.ECR_REPO_LOCAL_AUTH }}:${{ env.SHORT_SHA }}",'
+        fi
+        if [ "${{ needs.build.outputs.gp-connect }}" == "true" ]; then
+          PAYLOAD+='"gp-connect-image": "${{ env.ECR_REPO_GP_CONNECT }}:${{ env.SHORT_SHA }}",'
+        fi
+        if [ "${{needs.build.outputs.erm }}" == "true" ]; then
+          PAYLOAD+='"erm-image": "${{ env.ECR_REPO_ERM }}:${{ env.SHORT_SHA }}",'
+        fi
+        if [ "${{ needs.build.outputs.im1 }}" == "true" ]; then
+          PAYLOAD+='"im1-image": "${{ env.ECR_REPO_IM1 }}:${{ env.SHORT_SHA }}",'
+        fi
+        if [ "${{ needs.build.outputs.nhs-111 }}" == "true" ]; then
+          PAYLOAD+='"nhs-111-image": "${{ env.ECR_REPO_NHS_111 }}:${{ env.SHORT_SHA }}",'
+        fi
+        PAYLOAD=${PAYLOAD%,} # Remove trailing comma
+        PAYLOAD+="}"
+        echo $PAYLOAD
+        echo "PAYLOAD=$PAYLOAD" >> $GITHUB_ENV            
+    
+    
+      env:
+          SHORT_SHA: ${{ env.SHORT_SHA }}
+          ECR_REPO_AUTH: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/auth"
+          ECR_REPO_CORE: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/core"
+          ECR_REPO_PIM: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/pim"
+          ECR_REPO_LOCAL_AUTH: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/local-auth"
+          ECR_REPO_GP_CONNECT: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/gp-connect"
+          ECR_REPO_ERM: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/erm"
+          ECR_REPO_IM1: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/im1"
+          ECR_REPO_NHS-111: "622905996173.dkr.ecr.eu-west-2.amazonaws.com/tif/int/nhs-111"
+
+    - name: Repository Dispatch
+      uses: peter-evans/repository-dispatch@v1    
+      with:
+        token: ${{ secrets.GITOPS_REPO_PAT }}
+        repository: ${{ secrets.GITOPS_REPO }}
+        event-type: int-deploy
+        client-payload: ${{ env.PAYLOAD }}
+Merge pull
