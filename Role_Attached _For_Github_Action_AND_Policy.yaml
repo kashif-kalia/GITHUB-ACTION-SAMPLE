@@ -1,0 +1,123 @@
+- name: configure aws credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: arn:aws:iam::622905996173:role/github-assume-role 
+        role-session-name: GithubActionsSession
+        aws-region: ${{ env.AWS_REGION }}  
+____________________________________________________________________________________________________________________________________________________________________________________________
+
+arn:aws:iam::622905996173:role/github-assume-role :----Role POlicy and trusted Policy:
+
+___________________________________________________________________________________________________________________________________________________________________________________________
+
+
+                                    Trusted Relationsip Policy Of Role:-
+                                ________________________________
+
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Federated": "arn:aws:iam::622905996173:oidc-provider/token.actions.githubusercontent.com"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+                "StringEquals": {
+                    "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+                },
+                "StringLike": {
+                    "token.actions.githubusercontent.com:sub": "repo:CheckupHealthTIF/*:*"
+                }
+            }
+        }
+    ]
+}
+
+
+______________________________________________________________________________________________________________________________________________________________________________________
+
+                                                       Three Policy Attach TO Role:-
+                                                   ______________________________________
+
+1)cloudfront-cache-invalidation policy:-
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Statement1",
+            "Effect": "Allow",
+            "Action": [
+                "cloudfront:CreateInvalidation",
+                "cloudfront:GetDistribution",
+                "cloudfront:GetStreamingDistribution",
+                "cloudfront:GetDistributionConfig",
+                "cloudfront:GetInvalidation",
+                "cloudfront:ListInvalidations",
+                "cloudfront:ListStreamingDistributions",
+                "cloudfront:ListDistributions"
+            ],
+            "Resource": [
+                "arn:aws:cloudfront::622905996173:distribution/E2QLPAGVVDTLVE"
+            ]
+        }
+    ]
+}
+
+
+
+
+2) ecr-push-image-policy :-
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ecr:BatchGetImage",
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:CompleteLayerUpload",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:InitiateLayerUpload",
+                "ecr:PutImage",
+                "ecr:UploadLayerPart"
+            ],
+            "Resource": "arn:aws:ecr:eu-west-2:622905996173:repository/tif/*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "ecr:GetAuthorizationToken",
+            "Resource": "*"
+        }
+    ]
+}
+
+
+
+3) github-s3-upload :-
+
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:CreateBucket",
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::*",
+                "arn:aws:s3:::*/*"
+            ]
+        }
+    ]
+}
+
