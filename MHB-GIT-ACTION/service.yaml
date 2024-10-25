@@ -1,0 +1,231 @@
+name: uat
+
+on:
+  push:
+    branches: [ uat ]
+jobs:
+  build:
+    name: Package, Build Image, Push & Trigger Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
+
+    - name: Java setup
+      uses: actions/setup-java@v3
+      with:
+        distribution: temurin
+        java-version: 17
+     
+    - name: Determine changed services on Push
+      id: changed-services
+      run: |
+        if ${{ github.event_name == 'pull_request' }}; then
+          echo "CHANGED_FILES=$(git diff --name-only -r HEAD^1 HEAD | xargs)" >> $GITHUB_OUTPUT
+          CHANGED_FILES=$(git diff --name-only -r HEAD^1 HEAD | xargs)
+        else
+          echo "CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | xargs)" >> $GITHUB_OUTPUT
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | xargs)
+        fi
+        echo "core=$(echo "$CHANGED_FILES" | grep -q 'services/core/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "auth=$(echo "$CHANGED_FILES" | grep -q 'services/auth/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "notification=$(echo "$CHANGED_FILES" | grep -q 'services/notification/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "scheduler=$(echo "$CHANGED_FILES" | grep -q 'services/scheduler/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "reporting=$(echo "$CHANGED_FILES" | grep -q 'services/reporting/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "reward=$(echo "$CHANGED_FILES" | grep -q 'services/reward/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+        echo "archival-flow=$(echo "$CHANGED_FILES" | grep -q 'services/archival-flow/' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT 
+        echo "shared=$(echo "$CHANGED_FILES" | grep -q 'shared/*' && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+    
+    - name: Print changed files
+      run: |
+        for file in ${{ steps.changed-services.outputs.CHANGED_FILES }}; do
+          echo "$file was changed"
+        done     
+
+    - name: Debug Outputs
+      run: |
+        echo "Core: ${{ steps.changed-services.outputs.core }}"
+        echo "Auth: ${{ steps.changed-services.outputs.auth }}"
+        echo "Notification: ${{ steps.changed-services.outputs.notification }}"
+        echo "Scheduler: ${{ steps.changed-services.outputs.scheduler }}"
+        echo "Reporting: ${{ steps.changed-services.outputs.reporting }}"
+        echo "Rewards: ${{ steps.changed-services.outputs.reward }}"
+        echo "Archival-flow: ${{ steps.changed-services.outputs.archival-flow }}"    
+        echo "shared:${{steps.changed-services.output.shared}}"
+
+    - name: Compile & Package Core Service
+      if: steps.changed-services.outputs.core == 'true'
+      id: compile-n-package-core
+      run: |
+        ./gradlew core-build
+        cd ./services/core
+        rm -rf ./app/build/jar
+        unzip -o ./app/build/libs/app-0.0.1-SNAPSHOT.jar -d ./app/build/jar
+
+    - name: Compile & Package Auth Service
+      if: steps.changed-services.outputs.auth == 'true'
+      id: compile-n-package-auth
+      run: |
+        ./gradlew auth-build
+        cd ./services/auth
+        rm -rf ./app/build/jar
+        unzip -o ./build/libs/mhb-auth-service-0.0.1-SNAPSHOT.jar -d ./build/jar     
+        
+    - name: Compile & Package Notification Service
+      if: steps.changed-services.outputs.notification == 'true'
+      id: compile-n-package-notification
+      run: |
+        ./gradlew notification-build
+        cd ./services/notification
+        rm -rf ./app/build/jar
+        unzip -o ./build/libs/mhb-notification-service-0.0.1-SNAPSHOT.jar -d ./build/jar     
+
+    - name: Compile & Package Scheduler Service
+      if: steps.changed-services.outputs.scheduler == 'true'
+      id: compile-n-package-schedular
+      run: |
+        ./gradlew scheduler-build
+        cd ./services/scheduler
+        rm -rf ./app/build/jar
+        unzip -o ./build/libs/mhb-scheduler-service-0.0.1-SNAPSHOT.jar -d ./build/jar
+         
+    - name: Compile & Package Reporting Service
+      if: steps.changed-services.outputs.reporting == 'true'
+      id: compile-n-package-reporting
+      run: |
+        ./gradlew reporting-build
+        cd ./services/reporting
+        rm -rf ./app/build/jar
+        unzip -o ./build/libs/mhb-reporting-service-0.0.1-SNAPSHOT.jar -d ./build/jar
+                                                                                
+    - name: Compile & Package Reward Service
+      if: steps.changed-services.outputs.reward == 'true'
+      id: compile-n-package-reward
+      run: |
+        ./gradlew reward-build
+        cd ./services/reward
+        rm -rf ./app/build/jar
+        unzip -o ./build/libs/mhb-reward-service-0.0.1-SNAPSHOT.jar -d ./build/jar
+                     
+    - name: Compile & Package Archival-Flow Service
+      if: steps.changed-services.outputs.archival-flow == 'true'
+      id: compile-n-package-archival-flow
+      run: |
+        ./gradlew archival-flow-build
+        cd ./services/archival-flow
+        rm -rf ./app/build/jar
+        unzip -o ./build/libs/mhb-archival-flow-service-0.0.1-SNAPSHOT.jar -d ./build/jar
+                
+    - name: Compile & Package Archival-Flow Service
+      if: steps.changed-services.outputs.shared == 'true'
+      id: compile-n-package-shared-related-services
+      run: |
+         ./gradlew core-build
+         ./gradlew notification-build
+         ./gradlew scheduler-build
+         ./gradlew reporting-build
+         ./gradlew reward-build
+         ./gradlew archival-flow-build
+                   
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-south-1    
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Docker Build and Push to ECR
+      id: build-image
+      run: |
+        tag=2.0.0-$(git rev-parse --short "$GITHUB_SHA")
+        service=""
+        if [ "${{ steps.changed-services.outputs.core }}" = "true" ]; then
+          service="core"
+        elif [ "${{ steps.changed-services.outputs.auth }}" = "true" ]; then
+          service="auth"
+        elif [ "${{ steps.changed-services.outputs.notification }}" = "true" ]; then
+          service="notification"
+        elif [ "${{ steps.changed-services.outputs.scheduler }}" = "true" ]; then
+          service="scheduler"
+        elif [ "${{ steps.changed-services.outputs.reporting }}" = "true" ]; then
+          service="reporting"   
+        elif [ "${{ steps.changed-services.outputs.reward }}" = "true" ]; then
+          service="reward"      
+        elif [ "${{ steps.changed-services.outputs.archival-flow }}" = "true" ]; then
+          service="archival-flow"
+        elif [ "${{ steps.changed-services.outputs.shared }}" = "true" ]; then
+          service="shared"  
+        fi
+
+        if [ -n "$service" ]; then
+          ./k8s/uat/script-cicd.sh "$tag" "$service"
+          echo "TAG=$tag" >> $GITHUB_OUTPUT
+          echo "SERVICE=$service" >> $GITHUB_OUTPUT
+        else
+          echo "No services changed, skipping build."
+        fi
+            
+    - name: Prepare Client Payload
+      id: prepare-payload
+      run: |
+        PAYLOAD="{"
+        if [ "${{ steps.changed-services.outputs.auth }}" == "true" ]; then
+          PAYLOAD+='"auth-image": "${{ env.ECR_REPO_AUTH }}:${{ steps.build-image.outputs.TAG }}",'
+        fi
+        if [ "${{ steps.changed-services.outputs.core }}" == "true" ]; then
+          PAYLOAD+='"core-image": "${{ env.ECR_REPO_USER  }}:${{ steps.build-image.outputs.TAG }}",'
+        fi
+        if [ "${{ steps.changed-services.outputs.notification }}" == "true" ]; then
+          PAYLOAD+='"notification-image": "${{ env.ECR_REPO_NOTIFICATION }}:${{ steps.build-image.outputs.TAG }}",'
+        fi
+        if [ "${{ steps.changed-services.outputs.scheduler }}" == "true" ]; then
+          PAYLOAD+='"scheduler-image": "${{ env.ECR_REPO_SCHEDULER  }}:${{steps.build-image.outputs.TAG }}",'
+        fi
+        if [ "${{ steps.changed-services.outputs.reporting }}" == "true" ]; then
+          PAYLOAD+='"reporting-image": "${{ env.ECR_REPO_REPORTING }}:${{ steps.build-image.outputs.TAG }}",'
+        fi
+        if [ "${{ steps.changed-services.outputs.reward }}" == "true" ]; then
+          PAYLOAD+='"reward-image": "${{ env.ECR_REPO_REWARD }}:${{ steps.build-image.outputs.TAG}}",'
+        fi
+        if [ "${{ steps.changed-services.outputs.archival-flow }}" == "true" ]; then
+          PAYLOAD+='"archival-flow-image": "${{ env.ECR_REPO_ARCHIVAL_FLOW }}:${{steps.build-image.outputs.TAG }}",'
+        fi
+        if [ "${{ steps.changed-services.outputs.shared }}" == "true" ]; then
+          PAYLOAD+='"core-image": "${{ env.ECR_REPO_USER  }}:${{ steps.build-image.outputs.TAG }}",'
+          PAYLOAD+='"notification-image": "${{ env.ECR_REPO_NOTIFICATION }}:${{ steps.build-image.outputs.TAG }}",'
+          PAYLOAD+='"scheduler-image": "${{ env.ECR_REPO_SCHEDULER  }}:${{steps.build-image.outputs.TAG }}",'
+          PAYLOAD+='"reporting-image": "${{ env.ECR_REPO_REPORTING }}:${{ steps.build-image.outputs.TAG }}",'
+          PAYLOAD+='"reward-image": "${{ env.ECR_REPO_REWARD }}:${{ steps.build-image.outputs.TAG}}",'
+          PAYLOAD+='"archival-flow-image": "${{ env.ECR_REPO_ARCHIVAL_FLOW }}:${{steps.build-image.outputs.TAG }}",'
+          
+        fi
+        PAYLOAD=${PAYLOAD%,} # Remove trailing comma
+        PAYLOAD+="}"
+        echo "PAYLOAD=$PAYLOAD" >> $GITHUB_ENV
+        echo $PAYLOAD
+
+      env:
+          ECR_REPO_AUTH: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/mhb_auth"
+          ECR_REPO_USER: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/mhb_core"
+          ECR_REPO_MONGO: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/clients/mongo"
+          ECR_REPO_MYSQL: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/clients/mysql"
+          ECR_REPO_NOTIFICATION: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/mhb_notification"
+          ECR_REPO_SCHEDULER: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/mhb_scheduler"
+          ECR_REPO_REPORTING: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/mhb_reporting"
+          ECR_REPO_REWARD: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/mhb_reward"
+          ECR_REPO_ARCHIVAL_FLOW: "209258198235.dkr.ecr.ap-south-1.amazonaws.com/mhb_app/uat/mhb_archival_flow"
+
+    - name: Repository Dispatch
+      uses: peter-evans/repository-dispatch@v1      
+      with:
+        token: ${{ secrets.PAT_DEVOPS_REPO }}
+        repository: ${{ secrets.DEVOPS_REPO }}
+        event-type: uat-deploy
+        client-payload:  ${{ env.PAYLOAD }}
