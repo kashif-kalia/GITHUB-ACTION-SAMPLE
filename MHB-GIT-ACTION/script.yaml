@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# Pre-requisite - docker, aws cli, kubectl, etc.
+# Post-execution - update image tags in devops repo - overlays/uat and update any config change and commit and push devops repo.
+
+tag=$1
+service=$2
+repo_server="209258198235.dkr.ecr.ap-south-1.amazonaws.com"
+region="ap-south-1"
+
+# Check if both arguments are provided
+if [ -z "$tag" ] || [ -z "$service" ]; then
+  echo "Usage: $0 <tag> <service>"
+  exit 1
+fi
+
+build_and_push() {
+  repo_uri="$repo_server/mhb_app/uat/$1"
+  image_tag="$repo_uri:$2"
+  context="$3"
+  dockerfile="$4"
+
+  cd "$context" || exit 1
+  docker build -t "$image_tag" . -f "$dockerfile"
+  aws ecr get-login-password --region "$region" | docker login --username AWS --password-stdin "$repo_server"
+  docker push "$image_tag"
+  cd - > /dev/null
+}
+build_all_services() {
+  build_and_push "mhb_core" "$tag" "./services/core" "./../../k8s/uat/core/Dockerfile"
+  build_and_push "mhb_notification" "$tag" "./services/notification" "./../../k8s/uat/notification/Dockerfile"
+  build_and_push "mhb_scheduler" "$tag" "./services/scheduler" "./../../k8s/uat/scheduler/Dockerfile"
+  build_and_push "mhb_reporting" "$tag" "./services/reporting" "./../../k8s/uat/reporting/Dockerfile"
+  build_and_push "mhb_reward" "$tag" "./services/reward" "./../../k8s/uat/reward/Dockerfile"
+  build_and_push "mhb_archival_flow" "$tag" "./services/archival-flow" "./../../k8s/uat/archival-flow/Dockerfile"
+}
+
+case "$service" in
+  core)
+    build_and_push "mhb_core" "$tag" "./services/core" "./../../k8s/uat/core/Dockerfile"
+    ;;
+  auth)
+    build_and_push "mhb_auth" "$tag" "./services/auth" "./../../k8s/uat/auth/Dockerfile"
+    ;;
+  notification)
+    build_and_push "mhb_notification" "$tag" "./services/notification" "./../../k8s/uat/notification/Dockerfile"
+    ;;  
+  scheduler)
+    build_and_push "mhb_scheduler" "$tag" "./services/scheduler" "./../../k8s/uat/scheduler/Dockerfile"
+    ;;    
+  reporting)
+    build_and_push "mhb_reporting" "$tag" "./services/reporting" "./../../k8s/uat/reporting/Dockerfile"
+    ;;
+  reward)
+    build_and_push "mhb_reward" "$tag" "./services/reward" "./../../k8s/uat/reward/Dockerfile"
+    ;;    
+  archival-flow)
+    build_and_push "mhb_archival_flow" "$tag" "./services/archival-flow" "./../../k8s/uat/archival-flow/Dockerfile"
+    ;;    
+  shared)
+    build_all_services
+    ;;         
+  *)
+    echo "No valid service specified. Exiting."
+    exit 1
+    ;;
+esac
