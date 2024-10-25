@@ -1,0 +1,99 @@
+name: Repository Dispatch
+
+on:
+  repository_dispatch:
+    types: [uat-deploy]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Print Payload
+      run: |
+        echo "auth-image: ${{ github.event.client_payload.auth-image }}"
+        echo "core-image: ${{ github.event.client_payload.core-image }}"
+        echo "mongo-image: ${{ github.event.client_payload.mongo-image }}"
+        echo "mysql-client-image: ${{ github.event.client_payload.mysql-client-image }}"
+        echo "notification-image: ${{ github.event.client_payload.notification-image }}"
+        echo "scheduler-image: ${{ github.event.client_payload.scheduler-image }}"
+        echo "reporting-image: ${{ github.event.client_payload.reporting-image }}"
+        echo "reward-image: ${{ github.event.client_payload.reward-image }}"
+        echo "archival-flow-image: ${{ github.event.client_payload.archival-flow-image }}"
+
+    - name: Update Auth Image Version
+      if: ${{github.event.client_payload.auth-image && github.event.client_payload.auth-image != ''}}
+      id: img-update-1
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.auth-image }}"' -i overlays/uat/auth/deployment.yaml
+       
+    - name: Update Core Image Version
+      if: ${{github.event.client_payload.core-image && github.event.client_payload.core-image != ''}}
+      id: img-update-2
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.core-image }}"' -i overlays/uat/core/deployment.yaml
+          
+    - name: Update Mongo Client Image Version
+      if: ${{github.event.client_payload.mongo-image && github.event.client_payload.mongo-image != ''}}
+      id: img-update-3
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.mongo-client-image }}"' -i overlays/uat/mongo/client.yaml
+
+    - name: Update MySQL Client Image Version
+      if: ${{github.event.client_payload.sql-client-image && github.event.client_payload.sql-client-image != ''}}
+      id: img-update-4
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.mysql-client-image }}"' -i overlays/uat/mysql/client.yaml
+        
+    - name: Update Notification Service Image Version
+      if: ${{github.event.client_payload.notification-image && github.event.client_payload.notification-image != ''}}
+      id: img-update-5
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.notification-image }}"' -i overlays/uat/notification/deployment.yaml
+    - uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        commit_message: Apply image name changes
+
+    - name: Update Scheduler Service Image Version
+      if: ${{github.event.client_payload.scheduler-image && github.event.client_payload.scheduler-image != ''}}
+      id: img-update-6
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.scheduler-image }}"' -i overlays/uat/scheduler/deployment.yaml
+            
+    - name: Update Reporting Service Image Version
+      if: ${{github.event.client_payload.reporting-image && github.event.client_payload.reporting-image != ''}}
+      id: img-update-7
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.reporting-image }}"' -i overlays/uat/reporting/deployment.yaml
+    
+    - name: Update Reward Service Image Version
+      if: ${{github.event.client_payload.reward-image && github.event.client_payload.reward-image != ''}}
+      id: img-update-8
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.reward-image }}"' -i overlays/uat/reward/deployment.yaml    
+            
+    - name: Update Archival-flow Service Image Version
+      if: ${{github.event.client_payload.archival-flow-image && github.event.client_payload.archival-flow-image != ''}}
+      id: img-update-9
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.archival-flow-image }}"' -i overlays/uat/archival-flow/deployment.yaml    
+    
+    - name: Update Shared Related Services Image Version
+      if: ${{github.event.client_payload.archival-flow-image && github.event.client_payload.archival-flow-image != ''}}
+      id: img-update-9
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq eval '.spec.template.spec.containers[0].image = "${{ github.event.client_payload.archival-flow-image }}"' -i overlays/uat/archival-flow/deployment.yaml    
+
+    - uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        commit_message: Apply image name changes
